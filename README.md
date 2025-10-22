@@ -27,10 +27,10 @@ pip install -r requirements.txt
 ```
 source fire/bin/activate
 ```
-## Download and visualize the data
+## Download and visualize the FireRisk data
 ```
 python visualize_firerisk.py
 ```
-
+Note: it will take a few minutes to download the 15GB of data
 ## More coming...
 
