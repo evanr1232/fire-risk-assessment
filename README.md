@@ -4,7 +4,7 @@ Elisabeth Holm, Evan Robert, Kimberly Cheung
 
 This repository contains code and experiments for assessing fire risk using geospatial and machine learning techniques
 
-Required: Python 10.0
+Required: Python 3.10.0
 
 ---
 
