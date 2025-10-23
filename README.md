@@ -33,6 +33,6 @@ source fire/bin/activate
 ```
 python visualize_firerisk.py
 ```
-Note: it will take a few minutes to download the 15GB of data
+Note: it will take a while (~30 mins) to download the 15GB of data
 ## More coming...
 
