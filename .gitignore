@@ -1,6 +1,9 @@
 # -------- Project-specific ------
 data
+data/.
 fire
+models
+models/.
 
 # -------- macOS -----------
 # General
