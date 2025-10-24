@@ -5,6 +5,7 @@ fire
 # -------- macOS -----------
 # General
 .DS_Store
+data/.DS_Store
 .AppleDouble
 .LSOverride
 

@@ -58,7 +58,7 @@ def visualize_sample(sample, class_names=["high", "low", "moderate", "non-burnab
 
 
 def main(
-    root: str = "data/FireRisk",
+    root: str = "data",
     split: str = "train",
     batch_size: int = 8,
     num_workers: int = 4,
