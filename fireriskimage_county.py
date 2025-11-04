@@ -41,12 +41,12 @@ def extract_coords_from_filename(filename: str) -> tuple[float, float] | None:
 
 def get_county_from_coords(lat: float, lon: float) -> str:
     """
-    Uses the reverse_geocoder library to map coordinates to the nearest city/state.
+    Uses the geopy library to map coordinates to the nearest county. 
     """
     try:
         results = rg.search([(lat, lon)])  # must be a list of tuples
         place = results[0]
-        return f"{place['name']}, {place['admin1']}, {place['cc']}"
+        return f"{place['name']}, {place['admin2']}, {place['cc']}"
     except Exception as e:
         return f"ERROR: {e}"
 
@@ -83,7 +83,8 @@ if __name__ == "__main__":
         # Merge results
         for filename, (lat, lon), geo in zip(filenames, coords_list, results_geo):
             if geo:
-                place = f"{geo['name']}, {geo['admin1']}, {geo['cc']}"
+                state = geo['admin1']
+                county = geo['admin2']
             else:
                 place = "ERROR: reverse geocode failed"
             results.append({
@@ -91,7 +92,8 @@ if __name__ == "__main__":
                 'filename': filename,
                 'latitude': lat,
                 'longitude': lon,
-                'county': place
+                'state': state,
+                'county': county
             })
 
     # 4. Save CSV
