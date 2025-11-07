@@ -30,9 +30,9 @@ def main():
 
     num_epochs = 50
 
-    for epoch in tqdm(range(num_epochs), desc="Epochs"):
+    for epoch in range(num_epochs):
         model.train()
-        for imgs, labels in train_loader:
+        for imgs, labels in tqdm(train_loader, desc=f"Train epoch {epoch}/{num_epochs}"):
             imgs, labels = imgs.to(device), labels.to(device)
             optimizer.zero_grad()
             loss = criterion(model(imgs), labels)
@@ -43,7 +43,7 @@ def main():
         model.eval()
         all_preds, all_labels = [], []
         with torch.no_grad():
-            for imgs, labels in val_loader:
+            for imgs, labels in tqdm(val_loader, desc=f"Val epoch {epoch}/{num_epochs}"):
                 imgs, labels = imgs.to(device), labels.to(device)
                 preds = model(imgs).argmax(1)
                 all_preds.append(preds.cpu())
