@@ -5,6 +5,11 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, ToTensor, Normalize
 from torchgeo.datasets import FireRisk
 from torchgeo.datamodules import FireRiskDataModule  # optional, for data splits etc.
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--num_vis", type=int, required=True, default="5")
+args = parser.parse_args()
 
 def fire_risk_transform(sample):
     # Apply transforms only to the image tensor
@@ -77,10 +82,11 @@ def main(
     for i, sample in enumerate(loader):
         # sample is a batch (a dict of batched tensors)
         # Visualize one in the batch
+
+        if i >= args["num_vis"]:
+            break
         single = {k: v[i] for k, v in sample.items()}
         visualize_sample(single)
-        if i >= 7:
-            break
 
 
 if __name__ == "__main__":

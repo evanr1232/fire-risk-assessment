@@ -33,6 +33,10 @@ source fire/bin/activate
 ```
 python visualize_firerisk.py
 ```
+To only download and not visualize, change the num_vis flag to 0
+```
+python visualize_firerisk.py --num_vis 0
+```
 Note: it will take a while (~30 mins) to download the 15GB of data
 # ImageNet1k MAE + ViT Finetuned Model
 
