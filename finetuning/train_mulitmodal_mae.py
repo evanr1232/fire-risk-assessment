@@ -3,13 +3,19 @@ from torch import nn
 from torch.utils.data import DataLoader
 import timm
 from datasets import FireRiskMultiModalDataset
-from sklearn.metrics import f1_score, confusion_matrix, classification_report
-import numpy as np
+from sklearn.metrics import f1_score, confusion_matrix, classification_report, ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
 import argparse
+from tqdm import tqdm
+import os
+
+plt.use("Agg")  # Headless for terminal with no display
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--encoder_path", type=str, required=True)
 args = parser.parse_args()
+
+CLASS_NAMES = ["Very_Low", "Low", "Moderate", "High", "Very_High", "Non-burnable", "Water"]
 
 class MultiModalViT(nn.Module):
     def __init__(self, tab_dim):
@@ -42,9 +48,11 @@ def main():
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0.05)
     criterion = nn.CrossEntropyLoss()
 
-    for epoch in range(50):
+    num_epochs = 50
+
+    for epoch in range(num_epochs):
         model.train()
-        for img, tab, label in DataLoader(train_ds, batch_size=32, shuffle=True):
+        for img, tab, label in tqdm(DataLoader(train_ds, batch_size=32, shuffle=True), desc=f"Train epoch {epoch}/{num_epochs}"):
             img, tab, label = img.to(device), tab.to(device), label.to(device)
             optimizer.zero_grad()
             loss = criterion(model(img, tab), label)
@@ -55,7 +63,7 @@ def main():
         model.eval()
         all_preds, all_labels = [], []
         with torch.no_grad():
-            for img, tab, label in DataLoader(val_ds, batch_size=32):
+            for img, tab, label in tqdm(DataLoader(val_ds, batch_size=32), desc=f"Val epoch {epoch}/{num_epochs}"):
                 img, tab, label = img.to(device), tab.to(device), label.to(device)
                 preds = model(img, tab).argmax(1)
                 all_preds.append(preds.cpu())
@@ -67,6 +75,16 @@ def main():
         acc = (all_preds == all_labels).mean()
         macro_f1 = f1_score(all_labels, all_preds, average='macro')
         cm = confusion_matrix(all_labels, all_preds)
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm,display_labels=CLASS_NAMES)
+
+        plt.figure(figsize=(8,8))
+        disp.plot(cmap='Blues', values_format='d')
+        plt.title("Confusion Matrix")
+
+        # Save
+        os.makedirs("results", exist_ok=True)  # make dir if not made
+        plt.savefig("results/baseline_confusion_matrix.png", dpi=300, bbox_inches='tight')
+        plt.close()
 
         print(f"Epoch {epoch}: Val Acc = {acc:.4f}, Macro-F1 = {macro_f1:.4f}")
         print("Confusion Matrix:\n", cm)
