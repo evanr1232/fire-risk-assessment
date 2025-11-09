@@ -4,6 +4,8 @@ from torch.utils.data import DataLoader
 import timm
 from datasets import FireRiskImageDataset
 from sklearn.metrics import f1_score, confusion_matrix, classification_report, ConfusionMatrixDisplay
+import matplotlib
+matplotlib.use("Agg")  # Headless for terminal with no display
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import argparse
@@ -12,8 +14,6 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument("--encoder_path", type=str, required=True)
 args = parser.parse_args()
-
-plt.use("Agg")  # Headless for terminal with no display
 
 CLASS_NAMES = ["Very_Low", "Low", "Moderate", "High", "Very_High", "Non-burnable", "Water"]
 

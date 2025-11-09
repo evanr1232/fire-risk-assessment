@@ -4,12 +4,12 @@ from torch.utils.data import DataLoader
 import timm
 from datasets import FireRiskMultiModalDataset
 from sklearn.metrics import f1_score, confusion_matrix, classification_report, ConfusionMatrixDisplay
+import matplotlib
+matplotlib.use("Agg")  # Headless for terminal with no display
 import matplotlib.pyplot as plt
 import argparse
 from tqdm import tqdm
 import os
-
-plt.use("Agg")  # Headless for terminal with no display
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--encoder_path", type=str, required=True)
