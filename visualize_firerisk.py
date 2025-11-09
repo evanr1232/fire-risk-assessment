@@ -74,19 +74,21 @@ def main(
     print("Dataset size:", len(ds))
     print("Keys for sample:", ds[0].keys())
 
-    # Use a DataLoader -- can be used later to feed into model training loop
-    loader = DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    # Skip visualization if num_vis is set to 0
+    if args["num_vis"] != 0:
+        # Use a DataLoader -- can be used later to feed into model training loop
+        loader = DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=num_workers)
 
 
-    # Visualize a few samples
-    for i, sample in enumerate(loader):
-        # sample is a batch (a dict of batched tensors)
-        # Visualize one in the batch
+        # Visualize a few samples
+        for i, sample in enumerate(loader):
+            # sample is a batch (a dict of batched tensors)
+            # Visualize one in the batch
 
-        if i >= args["num_vis"]:
-            break
-        single = {k: v[i] for k, v in sample.items()}
-        visualize_sample(single)
+            if i >= args["num_vis"]:
+                break
+            single = {k: v[i] for k, v in sample.items()}
+            visualize_sample(single)
 
 
 if __name__ == "__main__":
