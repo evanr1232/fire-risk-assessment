@@ -67,10 +67,10 @@ class FireRiskMultiModalDataset(Dataset):
             for f in os.listdir(class_path):
                 match = df[df["filename"] == f]
                 if len(match) == 0:
-                    continue  # skip images without metadata
-                tab_vals = match[self.tab_cols].values[0]
+                    continue
+                row_idx = match.index[0]              # <-- Store row index
                 label = self.label_map[cls]
-                self.samples.append((os.path.join(class_path, f), label, tab_vals))
+                self.samples.append((os.path.join(class_path, f), label, row_idx))
 
         self.transform = transforms.Compose([
             transforms.Resize((224,224)),
@@ -84,11 +84,20 @@ class FireRiskMultiModalDataset(Dataset):
         return scaler
 
     def __getitem__(self, index):
-        path, label, tab = self.samples[index]
+        path, label, row_idx = self.samples[index]
+
+        # Load & transform image
         img = Image.open(path).convert("RGB")
         img = self.transform(img)
-        tab = torch.tensor(self.scaler.transform([tab])[0], dtype=torch.float32)
-        return img, tab, label
+
+        # Retrieve row as DataFrame → preserves feature names
+        tab_df = self.df.loc[[row_idx], self.tab_cols]   # shape (1, tab_dim)
+
+        # Scale
+        tab_scaled = self.scaler.transform(tab_df)       # still (1, tab_dim)
+        tab_tensor = torch.tensor(tab_scaled.squeeze(), dtype=torch.float32)
+
+        return img, tab_tensor, label
 
     def __len__(self):
         return len(self.samples)
