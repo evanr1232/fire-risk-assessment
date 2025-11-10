@@ -86,16 +86,14 @@ class FireRiskMultiModalDataset(Dataset):
     def __getitem__(self, index):
         path, label, row_idx = self.samples[index]
 
-        # Load & transform image
+        # image
         img = Image.open(path).convert("RGB")
         img = self.transform(img)
 
-        # Retrieve row as DataFrame → preserves feature names
-        tab_df = self.df.loc[[row_idx], self.tab_cols]   # shape (1, tab_dim)
-
-        # Scale
-        tab_scaled = self.scaler.transform(tab_df)       # still (1, tab_dim)
-        tab_tensor = torch.tensor(tab_scaled.squeeze(), dtype=torch.float32)
+        # tabular row as DataFrame to preserve names
+        tab_df = self.df.loc[[row_idx], self.tab_cols]          # (1, tab_dim)
+        tab_scaled = self.scaler.transform(tab_df)              # (1, tab_dim)
+        tab_tensor = torch.tensor(tab_scaled, dtype=torch.float32).squeeze(0)  # (tab_dim,)
 
         return img, tab_tensor, label
 
