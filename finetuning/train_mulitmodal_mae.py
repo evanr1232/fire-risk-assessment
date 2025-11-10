@@ -22,6 +22,7 @@ class MultiModalViT(nn.Module):
         super().__init__()
         self.vit = timm.create_model("vit_base_patch16_224", pretrained=False, num_classes=0)  # don't include classification head, just use ViT as feature extracter
         mae_state = torch.load(args.encoder_path, map_location="cpu")
+        mae_state = mae_state["model"]
         self.vit.load_state_dict(mae_state, strict=False)
 
         self.tab_mlp = nn.Sequential(
@@ -33,9 +34,11 @@ class MultiModalViT(nn.Module):
 
     def forward(self, img, tab):
         vit_feat = self.vit.forward_features(img)  # (B, N, D)
+        # print(vit_feat.mean().item(), vit_feat.std().item())
         vit_feat = vit_feat.mean(dim=1)           # (B, D) global average pooling
 
         tab_feat = self.tab_mlp(tab)              # (B, 128)
+        # print(tab_feat.mean().item(), tab_feat.std().item())
         return self.classifier(torch.cat([vit_feat, tab_feat], dim=-1))
 
 def main():
@@ -49,6 +52,41 @@ def main():
     model = MultiModalViT(tab_dim=len(TAB_COLS)).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0.05)
     criterion = nn.CrossEntropyLoss()
+    
+    # =========================
+    # Debug: Check MAE weight loading and feature outputs
+    # =========================
+    model.eval()
+
+    # Load a small batch for testing
+    sample_img, sample_tab, _ = next(iter(DataLoader(train_ds, batch_size=2)))
+    sample_img, sample_tab = sample_img.to(device), sample_tab.to(device)
+
+    # Check ViT features
+    vit_feat = model.vit.forward_features(sample_img)
+    print("=== ViT features ===")
+    print("Mean:", vit_feat.mean().item())
+    print("Std: ", vit_feat.std().item())
+    print("Min: ", vit_feat.min().item())
+    print("Max: ", vit_feat.max().item())
+
+    # Check tabular features
+    tab_feat = model.tab_mlp(sample_tab)
+    print("\n=== Tabular features ===")
+    print("Mean:", tab_feat.mean().item())
+    print("Std: ", tab_feat.std().item())
+    print("Min: ", tab_feat.min().item())
+    print("Max: ", tab_feat.max().item())
+
+    # Check classifier logits
+    logits = model.classifier(torch.cat([vit_feat.mean(1), tab_feat], dim=-1))
+    print("\n=== Classifier logits ===")
+    print("Mean:", logits.mean().item())
+    print("Std: ", logits.std().item())
+    print("Min: ", logits.min().item())
+    print("Max: ", logits.max().item())
+
+    ###
 
     num_epochs = 50
 
