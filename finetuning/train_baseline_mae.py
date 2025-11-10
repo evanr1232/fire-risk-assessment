@@ -77,7 +77,7 @@ def main():
             "Very_Low","Low","Moderate","High","Very_High","Non-burnable","Water"
         ]))
 
-    torch.save(model.state_dict(), "baseline_mae_vit.pth")
+    torch.save(model.state_dict(), "../models/baseline_mae_vit.pth")
 
 if __name__ == "__main__":
     main()

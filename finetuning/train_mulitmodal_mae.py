@@ -20,7 +20,7 @@ CLASS_NAMES = ["Very_Low", "Low", "Moderate", "High", "Very_High", "Non-burnable
 class MultiModalViT(nn.Module):
     def __init__(self, tab_dim):
         super().__init__()
-        self.vit = timm.create_model("vit_base_patch16_224", pretrained=False, num_classes=0)
+        self.vit = timm.create_model("vit_base_patch16_224", pretrained=False, num_classes=0)  # don't include classification head, just use ViT as feature extracter
         mae_state = torch.load(args.encoder_path, map_location="cpu")
         self.vit.load_state_dict(mae_state, strict=False)
 
@@ -32,8 +32,10 @@ class MultiModalViT(nn.Module):
         self.classifier = nn.Linear(self.vit.num_features + 128, 7)
 
     def forward(self, img, tab):
-        vit_feat = self.vit.forward_features(img)
-        tab_feat = self.tab_mlp(tab)
+        vit_feat = self.vit.forward_features(img)  # (B, N, D)
+        vit_feat = vit_feat.mean(dim=1)           # (B, D) global average pooling
+
+        tab_feat = self.tab_mlp(tab)              # (B, 128)
         return self.classifier(torch.cat([vit_feat, tab_feat], dim=-1))
 
 def main():
@@ -92,7 +94,7 @@ def main():
             "Very_Low","Low","Moderate","High","Very_High","Non-burnable","Water"
         ]))
 
-    torch.save(model.state_dict(), "multimodal_mae_vit.pth")
+    torch.save(model.state_dict(), "../models/multimodal_mae_vit.pth")
 
 if __name__ == "__main__":
     main()
