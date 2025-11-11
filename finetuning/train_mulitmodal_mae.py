@@ -99,13 +99,14 @@ def main():
     print("Min: ", tab_feat.min().item())
     print("Max: ", tab_feat.max().item())
 
-    # Check classifier logits
-    logits = model.classifier(torch.cat([vit_feat.mean(1), tab_feat], dim=-1))
-    print("\n=== Classifier logits ===")
-    print("Mean:", logits.mean().item())
-    print("Std: ", logits.std().item())
-    print("Min: ", logits.min().item())
-    print("Max: ", logits.max().item())
+    # Check projected ViT features
+    vit_feat = model.vit.forward_features(sample_img).mean(dim=1)
+    vit_proj = model.vit_proj(vit_feat)
+    print("\n=== Projected ViT features (after LayerNorm+Linear) ===")
+    print("Mean:", vit_proj.mean().item())
+    print("Std: ", vit_proj.std().item())
+    print("Min: ", vit_proj.min().item())
+    print("Max: ", vit_proj.max().item())
 
     ###
 
