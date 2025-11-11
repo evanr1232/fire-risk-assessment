@@ -33,7 +33,6 @@ class MultiModalViT(nn.Module):
         self.vit_proj = nn.Sequential(
             nn.LayerNorm(vit_dim),
             nn.Linear(vit_dim, reduced_dim),
-            nn.ReLU(),
         )
 
         # tabular pathway (unchanged & small)
@@ -56,8 +55,10 @@ class MultiModalViT(nn.Module):
         vit_feat = self.vit.forward_features(img)     # (B, N, D)
         vit_feat = vit_feat.mean(dim=1)               # (B, D)
         vit_feat = self.vit_proj(vit_feat)            # (B, 256)
+        print(vit_feat.mean().item(), vit_feat.std().item())
 
         tab_feat = self.tab_mlp(tab)                  # (B, 64)
+        print(tab_feat.mean().item(), tab_feat.std().item())
 
         combined = torch.cat([vit_feat, tab_feat], dim=-1)
         return self.classifier(combined)
@@ -71,7 +72,25 @@ def main():
     val_ds   = FireRiskMultiModalDataset("../data/FireRisk", "../data/NRI_Table_Counties/image_county_data_with_burnprob.csv", TAB_COLS, split="val", scaler=train_ds.scaler)
 
     model = MultiModalViT(tab_dim=len(TAB_COLS)).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0.05)
+    
+    # define weight initialization
+    def init_weights(m):
+        if isinstance(m, nn.Linear):
+            nn.init.xavier_uniform_(m.weight)
+            nn.init.zeros_(m.bias)
+
+    # apply to all new layers
+    model.vit_proj.apply(init_weights)
+    model.tab_mlp.apply(init_weights)
+    model.classifier.apply(init_weights)
+
+    optimizer = torch.optim.AdamW([
+        {'params': model.vit.parameters(), 'lr': 1e-5},          # pretrained
+        {'params': model.vit_proj.parameters(), 'lr': 1e-4},     
+        {'params': model.tab_mlp.parameters(), 'lr': 1e-4},      
+        {'params': model.classifier.parameters(), 'lr': 1e-4},   
+        ], weight_decay=0.05)
+
     criterion = nn.CrossEntropyLoss()
     
     # =========================
@@ -119,8 +138,8 @@ def main():
             optimizer.zero_grad()
             loss = criterion(model(img, tab), label)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-
         # val loop
         model.eval()
         all_preds, all_labels = [], []
