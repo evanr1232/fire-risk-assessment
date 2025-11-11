@@ -20,26 +20,47 @@ CLASS_NAMES = ["Very_Low", "Low", "Moderate", "High", "Very_High", "Non-burnable
 class MultiModalViT(nn.Module):
     def __init__(self, tab_dim):
         super().__init__()
-        self.vit = timm.create_model("vit_base_patch16_224", pretrained=False, num_classes=0)  # don't include classification head, just use ViT as feature extracter
-        mae_state = torch.load(args.encoder_path, map_location="cpu")
-        mae_state = mae_state["model"]
+
+        # Load ViT encoder (no head)
+        self.vit = timm.create_model("vit_base_patch16_224", pretrained=False, num_classes=0)
+        mae_state = torch.load(args.encoder_path, map_location="cpu")["model"]
         self.vit.load_state_dict(mae_state, strict=False)
 
-        self.tab_mlp = nn.Sequential(
-            nn.Linear(tab_dim, 128),
+        vit_dim = self.vit.num_features      # typically 768
+        reduced_dim = 256                    # tunable
+
+        # Normalize and reduce ViT features
+        self.vit_proj = nn.Sequential(
+            nn.LayerNorm(vit_dim),
+            nn.Linear(vit_dim, reduced_dim),
             nn.ReLU(),
-            nn.Linear(128, 128)
         )
-        self.classifier = nn.Linear(self.vit.num_features + 128, 7)
+
+        # tabular pathway (unchanged & small)
+        self.tab_mlp = nn.Sequential(
+            nn.Linear(tab_dim, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+        )
+
+        # classifier takes viT + tab
+        self.classifier = nn.Sequential(
+            nn.Linear(reduced_dim + 64, 256),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(256, 7)
+        )
 
     def forward(self, img, tab):
-        vit_feat = self.vit.forward_features(img)  # (B, N, D)
-        # print(vit_feat.mean().item(), vit_feat.std().item())
-        vit_feat = vit_feat.mean(dim=1)           # (B, D) global average pooling
+        vit_feat = self.vit.forward_features(img)     # (B, N, D)
+        vit_feat = vit_feat.mean(dim=1)               # (B, D)
+        vit_feat = self.vit_proj(vit_feat)            # (B, 256)
 
-        tab_feat = self.tab_mlp(tab)              # (B, 128)
-        # print(tab_feat.mean().item(), tab_feat.std().item())
-        return self.classifier(torch.cat([vit_feat, tab_feat], dim=-1))
+        tab_feat = self.tab_mlp(tab)                  # (B, 64)
+
+        combined = torch.cat([vit_feat, tab_feat], dim=-1)
+        return self.classifier(combined)
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
