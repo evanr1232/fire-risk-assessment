@@ -33,6 +33,29 @@ source fire/bin/activate
 ```
 python visualize_firerisk.py
 ```
+To only download and not visualize, change the num_vis flag to 0
+```
+python visualize_firerisk.py --num_vis 0
+```
 Note: it will take a while (~30 mins) to download the 15GB of data
-## More coming...
+# ImageNet1k MAE + ViT Finetuned Model
 
+## Download the MAE ImageNet1k pretrained base model weights
+```
+wget https://dl.fbaipublicfiles.com/mae/pretrain/mae_pretrain_vit_base.pth -O models/mae_vit_encoder_imagenet1k_base.pth
+```
+
+## Go into the finetuning folder
+```
+cd finetuning
+```
+
+## Train the Baseline Model (Image Only)
+```
+python train_baseline_mae.py --encoder_path "../models/mae_vit_encoder_imagenet1k_base.pth"
+```
+
+## Train the Multimodal Model (Image + Metadata)
+```
+python train_multimodal_mae.py --encoder_path "../models/mae_vit_encoder_imagenet1k_base.pth"
+```

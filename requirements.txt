@@ -1,5 +1,9 @@
 matplotlib==3.10.7
+pandas==2.3.3
+scikit-learn==1.7.2
+reverse_geocoder==1.5.1
 torch==2.9.0
 torchgeo==0.6.2
 torchvision==0.24.0
-reverse_geocoder=1.5.1
+timm==1.0.22
+tqdm==4.67.1
