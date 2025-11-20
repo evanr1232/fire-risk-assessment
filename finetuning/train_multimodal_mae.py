@@ -67,6 +67,7 @@ class MultiModalViT(nn.Module):
 # ----------------------------------------------------------------------
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device == "cuda": print("WARNING: NOT USING GPU, CUDA NOT AVAILABLE")
 
     # ------------------------
     # Tabular columns to use
@@ -104,6 +105,11 @@ def main():
     # Model
     # ------------------------
     model = MultiModalViT(tab_dim=len(TAB_COLS)).to(device)
+
+    # Freeze all but last block of ViT to reduce params and avoid overfitting
+    for name, param in model.vit.named_parameters():
+        if "blocks.11" not in name:   # last transformer block
+            param.requires_grad = False
 
     def init_weights(m):
         if isinstance(m, nn.Linear):
@@ -230,6 +236,7 @@ def main():
         all_preds_np = torch.cat(all_preds).numpy()
         all_labels_np = torch.cat(all_labels).numpy()
         cm = confusion_matrix(all_labels_np, all_preds_np)
+        print("Confusion Matrix:\n", cm)
         disp = ConfusionMatrixDisplay(cm, display_labels=CLASS_NAMES)
         plt.figure(figsize=(8,8))
         disp.plot(cmap="Blues", values_format="d")
