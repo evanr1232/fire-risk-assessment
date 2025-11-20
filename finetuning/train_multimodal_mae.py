@@ -11,6 +11,9 @@ import argparse
 from tqdm import tqdm
 import os
 import pandas as pd
+from coral_pytorch.layers import CoralLayer
+from coral_pytorch.losses import coral_loss
+from coral_pytorch.dataset import levels_from_labelbatch, proba_to_label
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--encoder_path", type=str, default="../models/mae_vit_encoder_imagenet1k_base.pth")
@@ -19,6 +22,7 @@ parser.add_argument("--lr", type=float, default=1e-4)
 args = parser.parse_args()
 
 CLASS_NAMES = ["Very_Low", "Low", "Moderate", "High", "Very_High", "Non-burnable", "Water"]
+NUM_CLASSES = len(CLASS_NAMES)
 
 # ----------------------------------------------------------------------
 # MULTIMODAL MODEL
@@ -51,7 +55,7 @@ class MultiModalViT(nn.Module):
             nn.Linear(reduced_dim + 64, 256),
             nn.ReLU(),
             nn.Dropout(0.2),
-            nn.Linear(256, len(CLASS_NAMES))
+            nn.Linear(256, NUM_CLASSES - 1)   # CORAL outputs K-1 logits
         )
 
     def forward(self, img, tab):
@@ -67,7 +71,7 @@ class MultiModalViT(nn.Module):
 # ----------------------------------------------------------------------
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    if device == "cuda": print("WARNING: NOT USING GPU, CUDA NOT AVAILABLE")
+    if device == "cpu": print("WARNING: NOT USING GPU, CUDA NOT AVAILABLE")
 
     # ------------------------
     # Tabular columns to use
@@ -129,7 +133,7 @@ def main():
         {"params": model.classifier.parameters(),  "lr": lr},
     ], weight_decay=0.05)
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = coral_loss
 
     num_epochs = args.num_epochs
     best_val_acc = 0.0
@@ -155,13 +159,14 @@ def main():
 
             optimizer.zero_grad()
             outputs = model(images, tab_feats)
-            loss = criterion(outputs, labels)
+            levels = levels_from_labelbatch(labels, NUM_CLASSES).to(device)
+            loss = criterion(outputs, levels)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
 
             running_loss += loss.item() * labels.size(0)
-            _, predicted = outputs.max(1)
+            predicted = proba_to_label(outputs).to(device)
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
 
@@ -190,10 +195,11 @@ def main():
                 images, tab_feats, labels = images.to(device), tab_feats.to(device), labels.to(device)
 
                 outputs = model(images, tab_feats)
-                loss = criterion(outputs, labels)
+                levels = levels_from_labelbatch(labels, NUM_CLASSES).to(device)
+                loss = criterion(outputs, levels)
                 val_running_loss += loss.item() * labels.size(0)
 
-                _, predicted = outputs.max(1)
+                predicted = proba_to_label(outputs).to(device)
                 val_correct += (predicted == labels).sum().item()
                 val_total += labels.size(0)
 
