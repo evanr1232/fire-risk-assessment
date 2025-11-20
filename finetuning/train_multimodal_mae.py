@@ -141,6 +141,9 @@ def main():
         correct = 0
         total = 0
 
+        train_all_preds = []
+        train_all_labels = []
+
         for images, tab_feats, labels in tqdm(train_loader, desc=f"Train {epoch+1}/{num_epochs}"):
             images, tab_feats, labels = images.to(device), tab_feats.to(device), labels.to(device)
 
@@ -156,8 +159,16 @@ def main():
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
 
+            train_all_preds.append(predicted.cpu())
+            train_all_labels.append(labels.cpu())
+
         train_loss = running_loss / total
         train_acc = correct / total
+        train_f1 = f1_score(
+            torch.cat(train_all_labels).numpy(),
+            torch.cat(train_all_preds).numpy(),
+            average='macro'
+        )
 
         # ------------------------
         # Validation
@@ -186,10 +197,6 @@ def main():
         val_loss = val_running_loss / val_total
         val_acc = val_correct / val_total
         val_f1 = f1_score(torch.cat(all_labels).numpy(), torch.cat(all_preds).numpy(), average='macro')
-
-        train_f1 = f1_score(torch.cat([predicted.cpu() for images, tab_feats, labels in train_loader]), 
-                            torch.cat([labels for images, tab_feats, labels in train_loader]), 
-                            average='macro')
 
         print(f"Epoch [{epoch+1}/{num_epochs}]"
               f" | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | Train F1: {train_f1:.4f}"
