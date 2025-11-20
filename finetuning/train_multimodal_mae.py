@@ -13,9 +13,9 @@ import os
 import pandas as pd
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--encoder_path", type=str, required=True, default="../models/mae_vit_encoder_imagenet1k_base.pth")
-parser.add_argument("--num_epochs", type=int, required=True, default=50)
-parser.add_argument("--lr", type=float, required=True, default=1e-4)
+parser.add_argument("--encoder_path", type=str, default="../models/mae_vit_encoder_imagenet1k_base.pth")
+parser.add_argument("--num_epochs", type=int, default=50)
+parser.add_argument("--lr", type=float, default=1e-4)
 args = parser.parse_args()
 
 CLASS_NAMES = ["Very_Low", "Low", "Moderate", "High", "Very_High", "Non-burnable", "Water"]
