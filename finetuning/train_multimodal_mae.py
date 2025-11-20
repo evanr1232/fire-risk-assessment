@@ -114,7 +114,7 @@ def main():
     model.tab_mlp.apply(init_weights)
     model.classifier.apply(init_weights)
 
-    lr = args["lr"]
+    lr = args.lr
 
     optimizer = torch.optim.AdamW([
         {"params": model.vit.parameters(),         "lr": 1e-5},
@@ -125,7 +125,7 @@ def main():
 
     criterion = nn.CrossEntropyLoss()
 
-    num_epochs = args["num_epochs"]
+    num_epochs = args.num_epochs
     best_val_acc = 0.0
     history = []
 
