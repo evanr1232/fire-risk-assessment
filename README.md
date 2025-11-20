@@ -57,5 +57,5 @@ python train_baseline_mae.py --encoder_path "../models/mae_vit_encoder_imagenet1
 
 ## Train the Multimodal Model (Image + Metadata)
 ```
-python train_multimodal_mae.py --encoder_path "../models/mae_vit_encoder_imagenet1k_base.pth"
+python train_multimodal_mae.py --encoder_path "../models/mae_vit_encoder_imagenet1k_base.pth" --num_epochs 50 --lr 0.001
 ```
