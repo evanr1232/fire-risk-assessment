@@ -9,6 +9,16 @@ from sklearn.preprocessing import StandardScaler
 
 CLASS_NAMES = ["Very_Low", "Low", "Moderate", "High", "Very_High", "Non-burnable", "Water"]
 
+
+# For NIR columns that are strings --> convert to numbers
+ORDINAL_MAP = {
+    "Very Low": 1,
+    "Relatively Low": 2,
+    "Relatively Moderate": 3,
+    "Relatively High": 4,
+    "Very High": 5
+}
+
 def make_label_map():
     return {cls_name: i for i, cls_name in enumerate(CLASS_NAMES)}
 
@@ -45,54 +55,36 @@ class FireRiskImageDataset(Dataset):
 
 class FireRiskMultiModalDataset(Dataset):
     """
-    Image + Tabular dataset
-    - Supports multiple tab columns
-    - Drops rows that are missing tabular values
-    - Ensures filename matching
+    Image + Tabular dataset with ordinal encoding
     """
-
     def __init__(self, root_dir, csv_path, tab_cols, split="train", scaler=None):
         self.root = os.path.join(root_dir, split)
         df = pd.read_csv(csv_path)
+        df = df[df["folder"] == split]
+        df["filename"] = df["filename"].astype(str)
 
-        # Only rows for this split
-        df = df[df["folder"] == split].copy()
+        # Convert categorical columns to ordinal numbers
+        for col in tab_cols:
+            if df[col].dtype == object:
+                df[col] = df[col].map(ORDINAL_MAP)
 
-        # Ensure filenames are strings (sometimes numbers appear)
-        df["filename"] = df["filename"].astype(str).str.strip()
-
-        # Drop rows where ANY tab column is NA
-        df = df.dropna(subset=tab_cols)
-
+        # Drop any rows with NaN after conversion
+        df = df.dropna(subset=tab_cols).reset_index(drop=True)
         self.df = df
         self.tab_cols = tab_cols
-
-        # Fit scaler only on training split
-        if scaler is None:
-            self.scaler = StandardScaler()
-            self.scaler.fit(self.df[self.tab_cols])
-        else:
-            self.scaler = scaler
+        self.scaler = scaler if scaler else self._fit_scaler()
 
         self.samples = []
         self.label_map = make_label_map()
-
-        # Match image files to their tab-row
         for cls in os.listdir(self.root):
             class_path = os.path.join(self.root, cls)
-            if not os.path.isdir(class_path):
-                continue
-
+            if not os.path.isdir(class_path): continue
             for f in os.listdir(class_path):
-                # ensure string match
-                f_clean = str(f).strip()
-                match = df[df["filename"] == f_clean]
-
-                if len(match) == 0:
-                    continue  # skip missing or invalid rows
-
+                match = self.df[self.df["filename"] == f]
+                if len(match) == 0: continue
                 row_idx = match.index[0]
-                self.samples.append((os.path.join(class_path, f), self.label_map[cls], row_idx))
+                label = self.label_map[cls]
+                self.samples.append((os.path.join(class_path, f), label, row_idx))
 
         self.transform = transforms.Compose([
             transforms.Resize((224,224)),
@@ -100,18 +92,18 @@ class FireRiskMultiModalDataset(Dataset):
             transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
         ])
 
+    def _fit_scaler(self):
+        scaler = StandardScaler()
+        scaler.fit(self.df[self.tab_cols])
+        return scaler
+
     def __getitem__(self, index):
         path, label, row_idx = self.samples[index]
-
-        # load image
         img = Image.open(path).convert("RGB")
         img = self.transform(img)
-
-        # tabular vector
-        tab_raw = self.df.loc[row_idx, self.tab_cols].values.astype(float)  # (tab_dim,)
-        tab_scaled = self.scaler.transform([tab_raw])[0]
-        tab_tensor = torch.tensor(tab_scaled, dtype=torch.float32)
-
+        tab_df = self.df.loc[[row_idx], self.tab_cols]
+        tab_scaled = self.scaler.transform(tab_df)
+        tab_tensor = torch.tensor(tab_scaled, dtype=torch.float32).squeeze(0)
         return img, tab_tensor, label
 
     def __len__(self):
