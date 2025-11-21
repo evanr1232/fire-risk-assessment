@@ -37,7 +37,7 @@ class MultiModalViT(nn.Module):
         self.vit.load_state_dict(mae_state, strict=False)
 
         vit_dim = self.vit.num_features
-        reduced_dim = 256
+        reduced_dim = 128
 
         self.vit_proj = nn.Sequential(
             nn.LayerNorm(vit_dim),
@@ -45,17 +45,17 @@ class MultiModalViT(nn.Module):
         )
 
         self.tab_mlp = nn.Sequential(
-            nn.Linear(tab_dim, 128),
+            nn.Linear(tab_dim, 64),
             nn.ReLU(),
-            nn.Linear(128, 64),
+            nn.Linear(64, 32),
             nn.ReLU(),
         )
 
         self.classifier = nn.Sequential(
-            nn.Linear(reduced_dim + 64, 256),
+            nn.Linear(reduced_dim + 32, 128),
             nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(256, NUM_CLASSES - 1)   # CORAL outputs K-1 logits
+            nn.Dropout(0.5),
+            nn.Linear(128, NUM_CLASSES - 1)   # CORAL outputs K-1 logits
         )
 
     def forward(self, img, tab):

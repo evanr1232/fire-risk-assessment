@@ -19,6 +19,22 @@ ORDINAL_MAP = {
     "Very High": 5
 }
 
+train_transform = transforms.Compose([
+    transforms.RandomResizedCrop(224, scale=(0.6, 1.0)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomVerticalFlip(),
+    transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
+    transforms.RandomRotation(20),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225]),
+])
+
+eval_transform = transforms.Compose([
+    transforms.Resize((224,224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225]),
+])
+
 def make_label_map():
     return {cls_name: i for i, cls_name in enumerate(CLASS_NAMES)}
 
@@ -37,11 +53,11 @@ class FireRiskImageDataset(Dataset):
             for f in os.listdir(class_path):
                 self.samples.append((os.path.join(class_path, f), self.label_map[class_name]))
 
-        self.transform = transforms.Compose([
-            transforms.Resize((224,224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
-        ])
+        if split == "train":
+            self.transform = train_transform
+        else:
+            self.transform = eval_transform
+
 
     def __getitem__(self, index):
         path, label = self.samples[index]
@@ -86,11 +102,11 @@ class FireRiskMultiModalDataset(Dataset):
                 label = self.label_map[cls]
                 self.samples.append((os.path.join(class_path, f), label, row_idx))
 
-        self.transform = transforms.Compose([
-            transforms.Resize((224,224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])
-        ])
+        if split == "train":
+            self.transform = train_transform
+        else:
+            self.transform = eval_transform
+
 
     def _fit_scaler(self):
         scaler = StandardScaler()
