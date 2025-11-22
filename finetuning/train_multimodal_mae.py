@@ -149,7 +149,7 @@ def main():
     print("CORAL threshold weights:", threshold_weights)
 
     # Weighted CORAL loss
-    criterion = lambda outputs, levels: coral_loss(outputs, levels, weight=threshold_weights)
+    criterion = lambda outputs, levels: coral_loss(outputs, levels, importance_weights=threshold_weights)
     # ------------------------
 
     num_epochs = args.num_epochs
