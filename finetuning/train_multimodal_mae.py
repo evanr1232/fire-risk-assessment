@@ -110,10 +110,10 @@ def main():
     # ------------------------
     model = MultiModalViT(tab_dim=len(TAB_COLS)).to(device)
 
-    # Freeze all but last block of ViT to reduce params and avoid overfitting
-    for name, param in model.vit.named_parameters():
-        if "blocks.11" not in name:   # last transformer block
-            param.requires_grad = False
+    # # Freeze all but last block of ViT to reduce params and avoid overfitting
+    # for name, param in model.vit.named_parameters():
+    #     if "blocks.11" not in name:   # last transformer block
+    #         param.requires_grad = False
 
     def init_weights(m):
         if isinstance(m, nn.Linear):
