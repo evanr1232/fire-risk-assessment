@@ -102,6 +102,9 @@ class FireRiskMultiModalDataset(Dataset):
                 label = self.label_map[cls]
                 self.samples.append((os.path.join(class_path, f), label, row_idx))
 
+        labels_np = np.array([s[1] for s in self.samples])
+        self.class_counts = np.bincount(labels_np, minlength=7)
+
         if split == "train":
             self.transform = train_transform
         else:

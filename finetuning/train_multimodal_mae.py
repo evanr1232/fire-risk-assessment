@@ -127,13 +127,30 @@ def main():
     lr = args.lr
 
     optimizer = torch.optim.AdamW([
-        {"params": model.vit.parameters(),         "lr": 1e-5},
+        # {"params": model.vit.parameters(),         "lr": 1e-5},
+        {"params": model.vit.blocks[-2:].parameters(), "lr": 3e-5},
+        {"params": model.vit.norm.parameters(), "lr": 3e-5},
         {"params": model.vit_proj.parameters(),    "lr": lr},
         {"params": model.tab_mlp.parameters(),     "lr": lr},
         {"params": model.classifier.parameters(),  "lr": lr},
     ], weight_decay=0.05)
 
-    criterion = coral_loss
+    # Class weighting for CORAL
+    class_counts = torch.tensor(train_ds.class_counts).float().to(device)
+    print("Class counts:", class_counts)
+
+    # Inverse frequency weights
+    class_weights = 1.0 / (class_counts + 1e-6)
+    class_weights = class_weights / class_weights.sum()
+
+    # CORAL requires K-1 threshold weights
+    threshold_weights = class_weights[:-1]  # shape = (num_classes - 1)
+    threshold_weights = threshold_weights.to(device)
+    print("CORAL threshold weights:", threshold_weights)
+
+    # Weighted CORAL loss
+    criterion = lambda outputs, levels: coral_loss(outputs, levels, weight=threshold_weights)
+    # ------------------------
 
     num_epochs = args.num_epochs
     best_val_acc = 0.0
