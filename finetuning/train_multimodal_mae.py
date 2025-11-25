@@ -11,9 +11,6 @@ import argparse
 from tqdm import tqdm
 import os
 import pandas as pd
-from coral_pytorch.layers import CoralLayer
-from coral_pytorch.losses import coral_loss
-from coral_pytorch.dataset import levels_from_labelbatch, proba_to_label
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--encoder_path", type=str, default="../models/mae_vit_encoder_imagenet1k_base.pth")
@@ -37,7 +34,7 @@ class MultiModalViT(nn.Module):
         self.vit.load_state_dict(mae_state, strict=False)
 
         vit_dim = self.vit.num_features
-        reduced_dim = 128
+        reduced_dim = 256
 
         self.vit_proj = nn.Sequential(
             nn.LayerNorm(vit_dim),
@@ -45,17 +42,17 @@ class MultiModalViT(nn.Module):
         )
 
         self.tab_mlp = nn.Sequential(
-            nn.Linear(tab_dim, 64),
+            nn.Linear(tab_dim, 128),
             nn.ReLU(),
-            nn.Linear(64, 32),
+            nn.Linear(128, 64),
             nn.ReLU(),
         )
 
         self.classifier = nn.Sequential(
-            nn.Linear(reduced_dim + 32, 128),
+            nn.Linear(reduced_dim + 32, 256),
             nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(128, NUM_CLASSES - 1)   # CORAL outputs K-1 logits
+            nn.Dropout(0.4),
+            nn.Linear(256, NUM_CLASSES)   # CORAL outputs K-1 logits
         )
 
     def forward(self, img, tab):
@@ -115,6 +112,10 @@ def main():
     #     if "blocks.11" not in name:   # last transformer block
     #         param.requires_grad = False
 
+    # Ensure all ViT layers are trainable
+    for p in model.vit.parameters():
+        p.requires_grad = True
+
     def init_weights(m):
         if isinstance(m, nn.Linear):
             nn.init.xavier_uniform_(m.weight)
@@ -127,29 +128,21 @@ def main():
     lr = args.lr
 
     optimizer = torch.optim.AdamW([
-        # {"params": model.vit.parameters(),         "lr": 1e-5},
-        {"params": model.vit.blocks[-2:].parameters(), "lr": 3e-5},
-        {"params": model.vit.norm.parameters(), "lr": 3e-5},
+        {"params": model.vit.parameters(),         "lr": 1e-5},
         {"params": model.vit_proj.parameters(),    "lr": lr},
         {"params": model.tab_mlp.parameters(),     "lr": lr},
         {"params": model.classifier.parameters(),  "lr": lr},
     ], weight_decay=0.05)
 
-    # Class weighting for CORAL
+    # Class weighting
     class_counts = torch.tensor(train_ds.class_counts).float().to(device)
     print("Class counts:", class_counts)
 
-    # Inverse frequency weights
+    # inverse frequency weights
     class_weights = 1.0 / (class_counts + 1e-6)
     class_weights = class_weights / class_weights.sum()
 
-    # CORAL requires K-1 threshold weights
-    threshold_weights = class_weights[:-1]  # shape = (num_classes - 1)
-    threshold_weights = threshold_weights.to(device)
-    print("CORAL threshold weights:", threshold_weights)
-
-    # Weighted CORAL loss
-    criterion = lambda outputs, levels: coral_loss(outputs, levels, importance_weights=threshold_weights)
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
     # ------------------------
 
     num_epochs = args.num_epochs
@@ -176,14 +169,13 @@ def main():
 
             optimizer.zero_grad()
             outputs = model(images, tab_feats)
-            levels = levels_from_labelbatch(labels, NUM_CLASSES).to(device)
-            loss = criterion(outputs, levels)
+            loss = criterion(outputs, labels)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
 
             running_loss += loss.item() * labels.size(0)
-            predicted = proba_to_label(outputs).to(device)
+            predicted = outputs.argmax(dim=1).cpu()
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
 
@@ -212,11 +204,10 @@ def main():
                 images, tab_feats, labels = images.to(device), tab_feats.to(device), labels.to(device)
 
                 outputs = model(images, tab_feats)
-                levels = levels_from_labelbatch(labels, NUM_CLASSES).to(device)
-                loss = criterion(outputs, levels)
+                loss = criterion(outputs, labels)
                 val_running_loss += loss.item() * labels.size(0)
 
-                predicted = proba_to_label(outputs).to(device)
+                predicted = outputs.argmax(dim=1).cpu()
                 val_correct += (predicted == labels).sum().item()
                 val_total += labels.size(0)
 
