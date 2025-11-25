@@ -49,9 +49,9 @@ class MultiModalViT(nn.Module):
         )
 
         self.classifier = nn.Sequential(
-            nn.Linear(reduced_dim + 32, 256),
+            nn.Linear(reduced_dim + 64, 256),
             nn.ReLU(),
-            nn.Dropout(0.4),
+            nn.Dropout(0.3),
             nn.Linear(256, NUM_CLASSES)   # CORAL outputs K-1 logits
         )
 
