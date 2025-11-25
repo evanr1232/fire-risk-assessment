@@ -175,7 +175,7 @@ def main():
             optimizer.step()
 
             running_loss += loss.item() * labels.size(0)
-            predicted = outputs.argmax(dim=1).cpu()
+            predicted = outputs.argmax(dim=1)
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
 
@@ -207,7 +207,7 @@ def main():
                 loss = criterion(outputs, labels)
                 val_running_loss += loss.item() * labels.size(0)
 
-                predicted = outputs.argmax(dim=1).cpu()
+                predicted = outputs.argmax(dim=1)
                 val_correct += (predicted == labels).sum().item()
                 val_total += labels.size(0)
 
