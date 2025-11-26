@@ -142,7 +142,7 @@ def main():
     class_weights = 1.0 / (class_counts + 1e-6)
     class_weights = class_weights / class_weights.sum()
 
-    criterion = nn.CrossEntropyLoss(weight=class_weights)
+    criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=0.05)
     # ------------------------
 
     num_epochs = args.num_epochs
