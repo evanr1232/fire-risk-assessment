@@ -1,0 +1,300 @@
+import os
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+from sklearn.metrics import f1_score
+import matplotlib.pyplot as plt
+
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+torch.set_num_threads(1) 
+
+# files containing ViT embeddings for every image
+EMB_PARQUET_TRAIN = "../vit_preds_embedding_train.parquet"
+EMB_PARQUET_VAL = "../vit_preds_embedding_val.parquet"
+CSV_BURN_PROB = "../data/NRI_Table_Counties/image_county_data_with_burnprob.csv"
+CSV_FREQ = "../data/NRI_Table_Counties/Added_NRI_WildfireAnnualizedFrequency.csv"
+
+RAW_TAB_COLS_BURN_PROB = ["latitude","longitude", "county", "Wildfire_Risk_Score_NRI"] 
+CONTINUOUS_FEAT_COLS = ["latitude","longitude", "Wildfire_Risk_Score_NRI"] 
+
+ENCODED_GEO_COLS = ["Lat_sin", "Lat_cos", "Lon_sin", "Lon_cos"]
+FINAL_TAB_COLS = ENCODED_GEO_COLS + ["Wildfire_Risk_Score_NRI","Wildfire_Annualized_Frequency"]
+DEVICE = "cpu"
+
+EPOCHS = 2048
+BATCH_SIZE = 256
+EMB_DIM = 768
+NUM_CLASSES = 7
+NUM_COUNTIES = None # set dynamically in main()
+
+TABULAR_FEAT_DIM = 6  # 4 encoded geo features + 2 NRI scores
+TABULAR_EMB_DIM = 64  # Output size of the Tabular Head
+COUNTY_EMB_DIM = 16  # Size of the County Embedding vector
+
+# grid search params
+LEARNING_RATES = [1e-3, 1e-4, 5e-5, 1e-5]
+WEIGHT_DECAYS = [1e-4, 1e-3, 1e-5]
+
+
+
+# model
+class ClassificationMLP(nn.Module):
+    """The final 3-Layer MLP for classification."""
+    def __init__(self, in_dim, num_classes, hidden_dim1=1024, hidden_dim2=512, dropout_rate=0.2):
+        super().__init__()
+        # Layer 1
+        self.fc1 = nn.Linear(in_dim, hidden_dim1)
+        self.relu1 = nn.ReLU()
+        self.dropout1 = nn.Dropout(dropout_rate)
+        
+        self.fc2 = nn.Linear(hidden_dim1, hidden_dim2) 
+        self.relu2 = nn.ReLU()
+        self.dropout2 = nn.Dropout(dropout_rate)
+        
+        self.fc3 = nn.Linear(hidden_dim2, num_classes)
+
+    def forward(self, x):
+        x = self.fc1(x); x = self.relu1(x); x = self.dropout1(x)
+        x = self.fc2(x); x = self.relu2(x); x = self.dropout2(x)
+        x = self.fc3(x)
+        return x
+
+class CombinedMLPHead(nn.Module):
+    """
+    Model with Tabular Head using County Embeddings.
+    """
+    def __init__(self, num_counties, county_emb_dim=COUNTY_EMB_DIM, tabular_in_dim=TABULAR_FEAT_DIM, tabular_out_dim=TABULAR_EMB_DIM, visual_dim=EMB_DIM, num_classes=NUM_CLASSES, dropout_rate=0.2):
+        super().__init__()
+        
+        # county embeddings
+        self.county_embedding = nn.Embedding(
+            num_embeddings=num_counties, 
+            embedding_dim=county_emb_dim
+        )
+        
+        # tabular features
+        tabular_combined_in_dim = tabular_in_dim + county_emb_dim
+
+        self.tabular_head = nn.Sequential(
+            nn.Linear(tabular_combined_in_dim, 128),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(64, tabular_out_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate) 
+        )
+        
+        # combined model
+        combined_in_dim = visual_dim + tabular_out_dim
+        
+        self.final_head = ClassificationMLP(
+            in_dim=combined_in_dim, 
+            num_classes=num_classes,
+            dropout_rate=dropout_rate
+        )
+
+    def forward(self, X_emb, X_tab, X_county_id):
+        county_emb = self.county_embedding(X_county_id)
+        processed_tabular_input = torch.cat([X_tab, county_emb], dim=1)
+        tabular_embedding = self.tabular_head(processed_tabular_input)
+        combined_input = torch.cat([X_emb, tabular_embedding], dim=1)
+        logits = self.final_head(combined_input)
+        
+        return logits
+
+# utils
+
+def to_xy(df):
+    """Splits data into X_emb, X_tab, X_county_id, and y."""
+    emb_cols = [f"emb_{i}" for i in range(EMB_DIM)]
+    X_emb = df[emb_cols].to_numpy(dtype=np.float32)
+    X_tab = df[FINAL_TAB_COLS].to_numpy(dtype=np.float32) 
+    X_county_id = df["county_id"].to_numpy(dtype=np.int64) 
+    y = df["label"].to_numpy(dtype=np.int64)
+    return X_emb, X_tab, X_county_id, y
+
+def batches(X_emb, X_tab, X_county_id, y, bs):
+    for i in range(0, len(y), bs):
+        yield X_emb[i:i+bs], X_tab[i:i+bs], X_county_id[i:i+bs], y[i:i+bs]
+
+def plot_final_curves(history_dict, metric_key, title_suffix):
+    plt.figure(figsize=(12, 7))
+    for (lr, decay), df in history_dict.items():
+        label = f'LR: {lr:.1e}, Decay: {decay:.1e}'
+        plt.plot(df['epoch'], df[metric_key], label=label)
+    metric_name = metric_key.replace("_", " ").title()
+    plt.title(f'{title_suffix}: {metric_name} (Combined Grid Search)')
+    plt.xlabel('Epoch')
+    plt.ylabel(metric_name)
+    plt.legend(loc='best', fontsize='small')
+    plt.grid(True)
+
+# training
+
+def train_loop(lr_value, decay_value, Xtr_emb, Xtr_tab, Xtr_county, ytr, Xva_emb, Xva_tab, Xva_county, yva, num_counties):
+    
+    model = CombinedMLPHead(num_counties=num_counties).to(DEVICE)
+    opt = torch.optim.AdamW(model.parameters(), lr=lr_value, weight_decay=decay_value) 
+    criterion = torch.nn.CrossEntropyLoss(label_smoothing=0.05)
+    
+    history = []
+    best_val_acc = -1.0
+    
+    for ep in range(1, EPOCHS + 1):
+        model.train()
+        tot, correct, loss_sum = 0, 0, 0.0
+        
+        for X_emb_b, X_tab_b, X_county_b, yb in batches(Xtr_emb, Xtr_tab, Xtr_county, ytr, BATCH_SIZE):
+            
+            X_emb_b, X_tab_b, X_county_b, yb = X_emb_b.to(DEVICE), X_tab_b.to(DEVICE), X_county_b.to(DEVICE), yb.to(DEVICE)
+            
+            opt.zero_grad(set_to_none=True)
+            logits = model(X_emb_b, X_tab_b, X_county_b)
+            
+            loss = criterion(logits, yb)
+            loss.backward()
+            opt.step()
+            loss_sum += loss.item() * len(yb)
+            correct += (logits.argmax(1) == yb).sum().item()
+            tot += len(yb)
+        
+        tr_loss = loss_sum / max(1, tot)
+        tr_acc = correct / max(1, tot)
+
+        # evaluate on validation set every 10 epochs
+        if ep % 10 == 0:
+            
+            model.eval()
+            with torch.no_grad():
+                Xv_emb, Xv_tab, Xv_county, yv = Xva_emb.to(DEVICE), Xva_tab.to(DEVICE), Xva_county.to(DEVICE), yva.to(DEVICE)
+                
+                logits = model(Xv_emb, Xv_tab, Xv_county)
+                
+                va_loss = criterion(logits, yv).item()
+                preds = logits.argmax(1)
+                va_acc  = (logits.argmax(1) == yv).float().mean().item()
+
+                y_true = yv.cpu().numpy()
+                y_pred = preds.cpu().numpy()
+                f1_macro = f1_score(y_true, y_pred, average="macro", zero_division=0)
+                f1_weighted = f1_score(y_true, y_pred, average="weighted", zero_division=0)
+            
+            if va_acc > best_val_acc:
+                best_val_acc = va_acc
+                
+            history.append({
+                "epoch": ep, "tr_loss": tr_loss, "tr_acc": tr_acc,
+                "val_acc": va_acc, "val_loss": va_loss, "f1_weighted": f1_weighted
+            })
+
+            print(f"LR {lr_value:.1e}, Decay {decay_value:.1e} | epoch {ep:03d} | tr_loss {tr_loss:.4f} | va_loss {va_loss:.4f} | va_acc {va_acc:.5f} | F1(w) {f1_weighted:.3f} (Best Acc: {best_val_acc:.5f})")
+        
+    history_df = pd.DataFrame(history)
+    
+    if not history_df.empty:
+        history_df['best_val_acc_run'] = best_val_acc 
+    
+    return history_df
+
+
+def main(): 
+    print("Loading and preprocessing data...")
+    emb_cols = ["filename", "label"] + [f"emb_{i}" for i in range(EMB_DIM)]
+    df_tr_e = pd.read_parquet(EMB_PARQUET_TRAIN)[emb_cols]
+    df_va_e = pd.read_parquet(EMB_PARQUET_VAL)[emb_cols]
+    
+    df_c = pd.read_csv(CSV_BURN_PROB)[["filename"] + CONTINUOUS_FEAT_COLS + ["county"]]
+    df_f = pd.read_csv(CSV_FREQ)[["filename","Wildfire_Annualized_Frequency"]]
+    
+    # county preprocessing
+    county_unique_identifiers = pd.concat([df_c["county"]]).unique()
+    county_to_id = {name: i for i, name in enumerate(county_unique_identifiers)}
+    df_c['county_id'] = df_c["county"].map(county_to_id)
+    global NUM_COUNTIES
+    NUM_COUNTIES = len(county_to_id)
+
+    # merge everything
+    df_tr = df_tr_e.merge(df_c, on="filename", how="inner").merge(df_f, on="filename", how="inner").dropna(subset=CONTINUOUS_FEAT_COLS + [f"emb_{i}" for i in range(EMB_DIM)] + ["county"]).reset_index(drop=True)
+    df_va = df_va_e.merge(df_c, on="filename", how="inner").merge(df_f, on="filename", how="inner").dropna(subset=CONTINUOUS_FEAT_COLS + [f"emb_{i}" for i in range(EMB_DIM)] + ["county"]).reset_index(drop=True)
+
+    # encode lat/lon
+    def encode_geo(df):
+        df['Lat_rad'] = df['latitude'] * np.pi / 180
+        df['Lon_rad'] = df['longitude'] * np.pi / 180
+        df['Lat_sin'] = np.sin(df['Lat_rad']); df['Lat_cos'] = np.cos(df['Lat_rad'])
+        df['Lon_sin'] = np.sin(df['Lon_rad']); df['Lon_cos'] = np.cos(df['Lon_rad'])
+        return df.drop(columns=['Lat_rad', 'Lon_rad', 'latitude', 'longitude'])
+
+    df_tr = encode_geo(df_tr)
+    df_va = encode_geo(df_va)
+
+    Xtr_emb, Xtr_tab, Xtr_county, ytr = to_xy(df_tr)
+    Xva_emb, Xva_tab, Xva_county, yva = to_xy(df_va)
+
+    # normalize tabular data 
+    m = Xtr_tab.mean(0, keepdims=True); s = Xtr_tab.std(0, keepdims=True) + 1e-6
+    Xtr_tab = (Xtr_tab - m) / s; Xva_tab = (Xva_tab - m) / s
+    
+    # convert to PyTorch tensors
+    Xtr_emb = torch.from_numpy(Xtr_emb); Xtr_tab = torch.from_numpy(Xtr_tab); Xtr_county = torch.from_numpy(Xtr_county); ytr = torch.from_numpy(ytr)
+    Xva_emb = torch.from_numpy(Xva_emb); Xva_tab = torch.from_numpy(Xva_tab); Xva_county = torch.from_numpy(Xva_county); yva = torch.from_numpy(yva)
+    
+    total_runs = len(LEARNING_RATES) * len(WEIGHT_DECAYS)
+    print(f"Data loading complete. Total unique counties found: {NUM_COUNTIES}. Starting combined grid search for {total_runs} total runs.")
+    
+    grid_search_results = {}
+    final_summary = {}
+    
+    # grid search
+    for lr in LEARNING_RATES:
+        for decay in WEIGHT_DECAYS:
+            key = (lr, decay)
+            print(f"\n--- Starting Training for LR: {lr:.1e}, Decay: {decay:.1e} ---")
+            
+            # Pass ALL data tensors AND num_counties to the train loop
+            history_df = train_loop(lr, decay, Xtr_emb, Xtr_tab, Xtr_county, ytr, Xva_emb, Xva_tab, Xva_county, yva, NUM_COUNTIES) 
+            grid_search_results[key] = history_df
+            
+            final_metrics = history_df.iloc[-1]
+            best_val_acc_run = history_df['val_acc'].max() 
+            
+            final_summary[key] = {
+                'Best_Val_Accuracy': best_val_acc_run, 
+                'Last_Val_Accuracy': final_metrics['val_acc'], 
+                'Last_Val_Loss': final_metrics['val_loss'],
+                'Last_F1_Weighted': final_metrics['f1_weighted']
+            }
+            print(f"Combination {key} finished. Best Val Acc: {best_val_acc_run:.5f}")
+    
+    summary_df = pd.DataFrame.from_dict(final_summary, orient='index')
+    summary_df.index = pd.MultiIndex.from_tuples(summary_df.index, names=['LR', 'Weight_Decay'])
+    
+    best_combo_acc = summary_df['Best_Val_Accuracy'].idxmax()
+
+    summary_df_formatted = summary_df.style.format({
+        'Best_Val_Accuracy': '{:.5f}'.format,
+        'Last_Val_Accuracy': '{:.5f}'.format,
+        'Last_Val_Loss': '{:.4f}'.format,
+        'Last_F1_Weighted': '{:.4f}'.format
+    }).to_string()
+
+    print(summary_df_formatted)
+    print("\n" + "="*80)
+    print(f"BEST COMBINATION (by Best Val Acc): LR={best_combo_acc[0]:.1e}, Decay={best_combo_acc[1]:.1e} with Best Val Acc={summary_df['Best_Val_Accuracy'].max():.5f}")
+    print("="*80)
+    
+    print("\nGenerating comparison plots...")
+    plot_final_curves(grid_search_results, 'val_acc', 'Validation Accuracy')
+    plot_final_curves(grid_search_results, 'val_loss', 'Validation Loss')
+    plot_final_curves(grid_search_results, 'tr_loss', 'Training Loss')
+    plt.show() 
+
+if __name__ == "__main__":
+    main()
