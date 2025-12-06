@@ -46,7 +46,7 @@ class ClassificationMLP(nn.Module):
     """The final 3-Layer MLP for classification."""
     def __init__(self, in_dim, num_classes, hidden_dim1=1024, hidden_dim2=512, dropout_rate=0.2):
         super().__init__()
-        # Layer 1
+
         self.fc1 = nn.Linear(in_dim, hidden_dim1)
         self.relu1 = nn.ReLU()
         self.dropout1 = nn.Dropout(dropout_rate)
@@ -258,7 +258,6 @@ def main():
             key = (lr, decay)
             print(f"\n--- Starting Training for LR: {lr:.1e}, Decay: {decay:.1e} ---")
             
-            # Pass ALL data tensors AND num_counties to the train loop
             history_df = train_loop(lr, decay, Xtr_emb, Xtr_tab, Xtr_county, ytr, Xva_emb, Xva_tab, Xva_county, yva, NUM_COUNTIES) 
             grid_search_results[key] = history_df
             
