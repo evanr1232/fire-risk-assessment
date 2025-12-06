@@ -31,7 +31,7 @@ source fire/bin/activate
 ```
 ## Download and visualize the FireRisk data
 ```
-python visualize_firerisk.py
+python preprocessing/visualize_firerisk.py
 ```
 To only download and not visualize, change the num_vis flag to 0
 ```
